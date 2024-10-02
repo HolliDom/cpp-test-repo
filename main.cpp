@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <set>
 #include <string>
@@ -16,14 +17,12 @@ string ReadLine() {
     getline(cin, s);
     return s;
 }
-
 int ReadLineWithNumber() {
     int result = 0;
     cin >> result;
     ReadLine();
     return result;
 }
-
 vector<string> SplitIntoWords(const string& text) {
     vector<string> words;
     string word;
@@ -33,8 +32,7 @@ vector<string> SplitIntoWords(const string& text) {
                 words.push_back(word);
                 word.clear();
             }
-        } 
-        else {
+        } else {
             word += c;
         }
     }
@@ -45,26 +43,29 @@ vector<string> SplitIntoWords(const string& text) {
 }
 struct Document {
     int id;
-    int relevance;
+    double relevance;
 };
-
 class SearchServer {
 public:
-   
     void SetStopWords(const string& text) {
         for (const string& word : SplitIntoWords(text)) {
             stop_words_.insert(word);
         }
     }
     void AddDocument(int document_id, const string& document) {
-       for ( const string& word : SplitIntoWordsNoStop(document)){
-            word_to_documents_[word].insert(document_id);
-        }
+        ++document_count_;
+        const vector<string> words = SplitIntoWordsNoStop(document);
+        const double inv_word_count = 1.0 / words.size();
+       
+        for (const string& word : words) {
+            word_to_document_freqs_[word][document_id] += inv_word_count;
+}
     }
     vector<Document> FindTopDocuments(const string& raw_query) const {
+       
         const Query query = ParseQuery(raw_query);
         auto matched_documents = FindAllDocuments(query);
-       
+        
         sort(matched_documents.begin(), matched_documents.end(),
              [](const Document& lhs, const Document& rhs) {
                  return lhs.relevance > rhs.relevance;
@@ -75,6 +76,10 @@ public:
         return matched_documents;
     }
 private:
+    int document_count_ = 0;
+    map<string, map<int, double>> word_to_document_freqs_;
+    set<string> stop_words_;
+   
     struct QueryWord {
         string data;
         bool is_minus;
@@ -85,9 +90,6 @@ private:
         set<string> minus_words;
     };
    
-    map<string, set<int>> word_to_documents_;
-    set<string> stop_words_;
-    
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
     }
@@ -122,21 +124,25 @@ private:
         }
         return query;
     }
+    double ComputeWordInverseDocumentFreq(const string& word) const {
+    return log(document_count_ * 1.0 / word_to_document_freqs_.at(word).size());
+}
     vector<Document> FindAllDocuments( const Query& query) const {
-       map<int, int> document_to_relevance;
+      map<int, double> document_to_relevance;
         for (const string& word : query.plus_words) {
-            if (word_to_documents_.count(word) == 0) {
+            if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
-            for (const int document_id : word_to_documents_.at(word)) {
-                ++document_to_relevance[document_id];
+            const double inverse_document_freq = ComputeWordInverseDocumentFreq(word);
+            for (const auto &[document_id, term_freq] : word_to_document_freqs_.at(word)) {
+                document_to_relevance[document_id] += term_freq * inverse_document_freq;
             }
         }
         for (const string& word : query.minus_words) {
-            if (word_to_documents_.count(word) == 0) {
+            if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
-            for (const auto document_id : word_to_documents_.at(word)) {
+            for (const auto &[document_id, _] : word_to_document_freqs_.at(word)) {
                 document_to_relevance.erase(document_id);
             }
         }
@@ -151,6 +157,7 @@ SearchServer CreateSearchServer() {
     SearchServer search_server;
     search_server.SetStopWords(ReadLine());
     const int document_count = ReadLineWithNumber();
+   
     for (int document_id = 0; document_id < document_count; ++document_id) {
         search_server.AddDocument(document_id, ReadLine());
     }
